@@ -72,7 +72,7 @@ generate_genomic_data <- function(n_individuals = 100,
     clusterExport(cl, list_names, envir = list2env(vars_to_export))
   }
   
-  # Function to process each chromosome
+  # Function to process each chromosome - note this needs severe work !!!
   process_chromosome <- function(chr) {
     print(paste0("Gathering data for chrom: ",chr,"/",n_chrs))
     
@@ -81,6 +81,7 @@ generate_genomic_data <- function(n_individuals = 100,
       if(n_snps > chrom_data[chr,3]){
         n_snps <- chrom_data[chr,3]
       }
+      # Randomly generate position based of chrom spread
       positions <- sort(sample(1:chrom_data[chr,2],n_snps))
     } else {
       positions <- sort(sample(1:9000000, n_snps))
@@ -91,7 +92,7 @@ generate_genomic_data <- function(n_individuals = 100,
     # Generate SNPs, IDs and .map data
     map_data <- data.frame(CHR = chr, SNP = snp_ids, GD = 0, BPP = positions)
     
-    # Generate allele data
+    # Generate allele data - this is separate from genotype data since it can be random
     bases <- c("A","T","C","G")
     minor_alleles <- sample(bases,n_snps,replace = TRUE)
     major_alleles <- sapply(minor_alleles, function(x) sample(bases[bases != x], 1))
@@ -128,7 +129,10 @@ generate_genomic_data <- function(n_individuals = 100,
       prev_genotypes <- genotypes_df[, i - 1]
       ld <- ld_metric[i]
       
-      # Adjust LD weight considering MAF
+      # Adjust LD weight considering MAF - not sure if this is correct, this needs work
+      # Idea is that when LD is high, maf input becomes much lower
+      # However if one MAF is high then LD of the other should not matter since it cant be in LD ? 
+      # INVESTIGATE ME. Pretty sure this can be changed to get rid of the ld weight section
       ld_weight <- ld * (1 - average_maf[i-1])
       maf_weight <- 1 - ld_weight
       # Base probabilities on MAF
@@ -149,7 +153,7 @@ generate_genomic_data <- function(n_individuals = 100,
         }
       }
       
-      # Sample genotypes based on calculated probabilities
+      # Sample genotypes based on calculated probabilities of MAF and ld weight
       genotypes_sampled <- apply(probs, 1, function(p) sample(c(0, 1, 2), 1, prob = p))
       genotypes_df <- cbind(genotypes_df, genotypes_sampled)
       
@@ -166,7 +170,7 @@ generate_genomic_data <- function(n_individuals = 100,
     colnames(alleles_df) <- snp_ids
     
     print("Collating results")
-    # Checks for similarity and stores allele info
+    # Checks for similarity and stores allele info. Similarity is a proxy for indentical by descnet score
     similarity_scores <- numeric(ncol(genotypes_df) - 1)
     observed_maf <- numeric(ncol(genotypes_df))
     for (i in 1:ncol(genotypes_df)) {
@@ -215,6 +219,7 @@ generate_genomic_data <- function(n_individuals = 100,
   } else {
     n_causal_snps_adj <- n_causal_snps
   }
+  # Causal SNPs are sampled based on a probability vector which conssiders their LD to previous SNP (high LD = more likely causal)
   causal_snp_data <- filt_snps %>%
     arrange(desc(LD_Prev)) %>%
     group_by(chr) %>%
@@ -222,6 +227,7 @@ generate_genomic_data <- function(n_individuals = 100,
     ungroup() %>%
     slice_sample(n = n_causal_snps_adj, weight_by = rank_weight, replace = FALSE) %>%
     mutate(Causal = T)
+  # Function above needs lots of work. Look into modifying causal probability distribution
   
   # Get the right information to adjust the phenotypes accordingly
   indexed_causal_data <- total_allele_info %>%
@@ -238,8 +244,9 @@ generate_genomic_data <- function(n_individuals = 100,
            weight_genetic = weight_genetic / sum(weight_genetic),
            weight_uniform = 1 / n(),
            weight = heritability * weight_genetic + (1 - heritability) * weight_uniform) %>%
-    filter(phenotype_vals < n_causal_snps_adj*2)
-  
+    filter(phenotype_vals < n_causal_snps_adj*2) # Filter out any individuals where all rows are 2
+  # Note the code above breaks if n_causal = 1 since a LOT of individuals shoudl have 2 genotype assuming HWE  
+                                 
   # Send an error messsage if we need to return fewer cases
   potential_cases <- nrow(geno_pheno_data_filt)
   if(n_cases > potential_cases){

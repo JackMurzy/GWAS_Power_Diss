@@ -130,16 +130,11 @@ generate_genomic_data <- function(n_individuals = 100,
   
   # Function to process each chromosome
   process_chromosome <- function(chr) {
-    set.seed(seed)
+    set.seed(seed+chr)
     print(paste0("Gathering data for chrom: ",chr,"/",n_chrs))
     n_snps <- snp_matrix[chr]
     # Base positions and number on chrom data if availible
     if(!is.null(chrom_data)){
-      # The code below ensures the number of SNPs is based off the actual count, but 
-      # it makes more sense to base the number of SNPs based off the size of the chromosome
-      # if(n_snps > chrom_data[chr,3]){
-      #   n_snps <- chrom_data[chr,3]
-      # }
       positions <- sort(sample(1:chrom_data$length[chr],n_snps))
     } else {
       # Set positions equally across 125,000,000 SNPs (set based off a rough average of chrom sizes in human data)
@@ -163,7 +158,7 @@ generate_genomic_data <- function(n_individuals = 100,
     maf_initial <- rbeta(n_snps*100, 1, 10)
     maf_filtered <- maf_initial[maf_initial >= 0.05 & maf_initial <= 0.5]
     maf <- sample(maf_filtered, n_snps)
-
+    
     # Generate HWE vectors
     p <- maf
     q <- 1 - p
@@ -191,7 +186,7 @@ generate_genomic_data <- function(n_individuals = 100,
       print(paste0("Generating Chr",chr," SNP data: ",i,"/",n_snps))
       prev_genotypes <- genotypes_df[, i - 1]
       ld <- ld_metric[i]
-
+      
       # Since maf is random and LD is "correct' based off distance, adjust the
       # maf weight based on LD so that when LD is high, it is considered more
       # maf_weight <- 1-ld
@@ -206,26 +201,7 @@ generate_genomic_data <- function(n_individuals = 100,
       # Since MAF was decided randomly, when LD is high it should be closer to the prev maf instead
       base_probs <- ld * prev_probs + (1 - ld) * this_probs
       
-      # # Create a probability matrix for all individuals across 0,1,2 genotypes
-      # probs <- matrix(0, nrow = n_individuals, ncol = 3)
-      # for (j in 1:n_individuals) {
-      #   # Note this used to be: maf_weight * base_probs -- when this was in use !!
-      #   probs[j, ] <- base_probs
-      #   # Note this used to be: + ld * ld_weight -- when this was in use !!
-      #   if (prev_genotypes[j] == 0) {
-      #     # Increase the probability of repeating the same genotype (0) 
-      #     probs[j, 1] <- probs[j, 1] + ld
-      #   } else if (prev_genotypes[j] == 1) {
-      #     # Increase the probability of repeating the same genotype (1)
-      #     probs[j, 2] <- probs[j, 2] + ld
-      #   } else {
-      #     # Increase the probability of repeating the same genotype (2)
-      #     probs[j, 3] <- probs[j, 3] + ld
-      #   }
-      # }
-      
       # Create a probability list for all base_probs for when prev genotype is 0,1,2 (stored as 1,2,3 respectively) 
-      # This does the exact same as the code above but is more efficent
       prob_list <- lapply(1:3, function(i) {
         base_probs[i] <- base_probs[i] + ld
         base_probs
@@ -277,7 +253,7 @@ generate_genomic_data <- function(n_individuals = 100,
     lapply(chrs, process_chromosome)
   }
   
-
+  
   # Work out which SNPs are causal
   print("Assigning causal SNPs")
   
@@ -289,27 +265,34 @@ generate_genomic_data <- function(n_individuals = 100,
   # Get genotypes in
   genotype_total <- do.call(cbind,lapply(results, `[[`, "genotype_data"))
   
+  # Calculate the number of desired controls the user wants
+  n_controls <- n_individuals-n_cases
+  n_control_prob <- n_controls/n_individuals
+  
   # Work out all the weightings for each genotype
   print(paste0("Calculating probability metrics for causal SNP assignment across all ",nrow(all_snps)," SNPs"))
+  print(paste0("Splitting data into ",numCores," groups"))
   split_snp_data <- split.default(genotype_total, rep(1:numCores, each = ceiling(ncol(genotype_total) / numCores))[1:ncol(genotype_total)])
-  weight_snps <- function(snp_data_input) {
+  investigate_snps <- function(snp_data_input) {
     data.frame(sd = apply(snp_data_input, 2, sd)) %>%
-      mutate(sd_norm = (sd - min(sd)) / (max(sd) - min(sd))) %>%
+      mutate(zero_count = colSums(snp_data_input == 0)) %>%
+      mutate(one_count = colSums(snp_data_input == 1)) %>%
       mutate(two_count = colSums(snp_data_input == 2)) %>%
-      mutate(two_norm = 1 - (two_count - min(two_count)) / (max(two_count) - min(two_count))) %>%
-      mutate(sd_count_weight = sd_norm + two_norm) %>%
+      mutate(two_coverage = two_count/n_individuals) %>%
+      mutate(control_similarity = 1-abs(two_coverage-n_control_prob)) %>%
+      mutate(geno_total = colSums(snp_data_input)) %>%
       rownames_to_column("id")
   }
   # If parallel then run over all cores for speed if data is large
-  weighted_snp_data <- if (parallel & ncol(genotype_total) >= 100000) {
-    parLapply(cl, split_snp_data, weight_snps)
+  investigated_snp_data <- if (parallel & ncol(genotype_total) >= 100000) {
+    parLapply(cl, split_snp_data, investigate_snps)
   } else {
-    lapply(split_snp_data, weight_snps)
+    lapply(split_snp_data, investigate_snps)
   }
   # Collect the data and join to all_snps
-  snp_data <- bind_rows(weighted_snp_data) %>%
+  snp_data <- bind_rows(investigated_snp_data) %>%
     left_join(all_snps) %>%
-    select(chr, id, sd, sd_norm, two_count, two_norm, sd_count_weight,
+    select(chr, id, sd, zero_count, one_count, two_count, two_coverage, control_similarity, geno_total,
            pos, minor, major, "maf_assigned" = MAF, "maf_observed" = Observed_maf, 
            "ld_toprev" = LD_Prev, "similarity_toprev" = Similarity, index_col)
   
@@ -320,74 +303,97 @@ generate_genomic_data <- function(n_individuals = 100,
   
   # Apply some categorical filters
   print(paste0("Applying categorical filter for causal SNPs based on: ",0.05," ≤ MAF ≤ ",0.15," & ",0.2," ≤ LD ≤ ",0.8))
-  # Filter SNPs based on their maf and LD to ensure they aren't overly rare and have a mid-range LD structure
-  filt_snps <- all_snps %>%
-    filter(Observed_maf <= 0.15,
-           Observed_maf >= 0.05)
-           # LD_Prev <= 0.8,
-           # LD_Prev >= 0.2)
+  print("Applying categorical filter for causal SNPs to eliminate SNPs where all genotypes are 2 & where no genotype is 0")
+  filt_snps <- snp_data %>%
+    # Filter SNPs based on their maf and LD to ensure some structure
+    filter(maf_observed >= 0.05,
+           # maf_observed <= 0.15,
+           # ld_toprev >= 0.2,
+           # Causal SNPs must have at least 1 0 and must not be full of 2's
+           zero_count != 0,
+           two_count != 2*n())
+  
   # Send a warning message if we are left with too few SNPs (likely means we are underpowered)
-  snps_remain <- nrow(filt_snps)
-  if(snps_remain < n_causal_snps){
-    n_causal_snps_adj <- snps_remain
-    warning(paste0("Filters mean only ",snps_remain," potentially causal SNPs remain, less than the ",n_causal_snps," desired"))
+  filt_snp_count <- nrow(filt_snps)
+  if(filt_snp_count < n_causal_snps){
+    n_causal_snps_adj <- filt_snp_count
+    warning(paste0("Filters mean only ",filt_snp_count," potentially causal SNPs remain, less than the ",n_causal_snps," desired"))
   } else {
     n_causal_snps_adj <- n_causal_snps
   }
   
-  print("Applying categorical filter for causal SNPs to eliminate SNPs where all genotypes are 2 & where no genotype is 0")
-  # Filter SNPs to ensure no SNP full of 2 is causal and no SNP without a 0 can be causal (ensures max range)
-  pot_causal <- genotype_total[, filt_snps$index_col, drop = FALSE] %>%
-    select(where(~ !all(. == 2))) %>% 
-    select(where(~ any(. == 0)))
-  # If we've filtered even further than before then say so now !
-  pot_causal_num <- ncol(pot_causal)
-  if(pot_causal_num < n_causal_snps_adj){
-    warning(paste0("Further filters mean only ",pot_causal_num," potentially causal SNPs remain, less than the ",n_causal_snps_adj," desired"))
-    n_causal_snps_adj <- pot_causal_num
+  # Assign weights to causal SNPs
+  causal_snp_weights <- filt_snps %>%
+    mutate(sd_scale = (sd - min(sd)) / (max(sd) - min(sd))) %>%
+    mutate(zero_scale = (zero_count - min(zero_count)) / (max(zero_count) - min(zero_count))) %>%
+    mutate(one_scale = (one_count - min(one_count)) / (max(one_count) - min(one_count))) %>%
+    mutate(two_scale = (two_count - min(two_count)) / (max(two_count) - min(two_count))) %>%
+    mutate(ctrl_sim_scale = (control_similarity - min(control_similarity)) / (max(control_similarity) - min(control_similarity))) %>%
+    mutate(geno_scale = (geno_total - min(geno_total)) / (max(geno_total) - min(geno_total))) %>%
+    mutate(ctr_adj_sd = ctrl_sim_scale*sd_scale) %>%
+    mutate(ctr_adj_sd_scale = (ctr_adj_sd - min(ctr_adj_sd)) / (max(ctr_adj_sd) - min(ctr_adj_sd))) %>%
+    group_by(chr) %>%
+    arrange(desc(ctr_adj_sd_scale)) %>%
+    mutate(chr_rank = 1/row_number()) %>%
+    ungroup() %>%
+    mutate(causal_weight = ctr_adj_sd_scale*0.8 + chr_rank*0.2) %>%
+    mutate(causal_weight_scale = (causal_weight - min(causal_weight)) / (max(causal_weight) - min(causal_weight)))
+  
+  # Assign n causal SNPs
+  causal_snps <- causal_snp_weights
+  while(nrow(causal_snps) > n_causal_snps_adj){
+    is_causal <- runif(nrow(causal_snps)) < causal_snps$causal_weight_scale
+    while(length(which(is_causal)) < n_causal_snps_adj){
+      is_causal <- runif(nrow(causal_snps)) < causal_snps$causal_weight_scale
+    }
+    causal_snps <- causal_snps[is_causal,]
   }
   
-  # Pick the causal SNP from our subset of SNPs
-  causal_snp_data <- snp_data %>%
-    filter(id %in% colnames(pot_causal)) %>%
-    group_by(chr) %>%
-    arrange(desc(sd_count_weight)) %>%
-    mutate(chr_weight = 1/row_number()) %>%
-    ungroup() %>%
-    mutate(rank_weight = sd_count_weight + chr_weight*0.25) %>%
-    mutate(rank_weight_norm = (rank_weight - min(rank_weight)) / (max(rank_weight) - min(rank_weight))) %>%
-    {
-      causal_ids <- sample(.$id,size = n_causal_snps_adj, prob = .$rank_weight_norm, replace = FALSE)
-      mutate(., causal = id %in% causal_ids)
-    }
-  
-  causal_snps <- causal_snp_data %>% 
-    filter(causal)
+  # Create final allele info for later
+  allele_info_fnal <- causal_snps %>% 
+    right_join(snp_data) %>%
+    mutate(causal = (id %in% causal_snps$id)) %>%
+    arrange(chr)
   
   print(paste0("Assigning probabilities for each individual being a case based on genotype data (",heritability*100,"%) and environmental factors (",(1-heritability)*100,"%)"))
   # Note the bottom filters out all cases where the genotype score is max, and we square scores to make differnces bigger
-  geno_index_data <- pot_causal[,causal_snps$id,drop = FALSE] %>%
+  geno_index_data <- genotype_total[,causal_snps$id,drop = FALSE] %>%
     mutate(index_row = row_number())
   geno_pheno_weights <- geno_index_data %>%
     mutate(phenotype_vals = rowSums(.)-index_row) %>%
-    mutate(weight_genetic = (1- (phenotype_vals - min(phenotype_vals)) / (max(phenotype_vals) - min(phenotype_vals)))^2) %>%
-    mutate(weight_uniform = 0.5) %>%
-    mutate(weight = heritability * weight_genetic + (1 - heritability) * weight_uniform) %>%
-    mutate(weight = if_else(weight<=0, 0.000000001, weight))
+    mutate(phenotype_scale = (phenotype_vals - min(phenotype_vals)) / (max(phenotype_vals) - min(phenotype_vals))) %>%
+    mutate(uniform_weight = 0.5) %>%
+    mutate(herit_adj_pheno = heritability * (1-phenotype_scale) + (1 - heritability) * uniform_weight) %>%
+    mutate(case_scale = (herit_adj_pheno - min(herit_adj_pheno)) / (max(herit_adj_pheno) - min(herit_adj_pheno)))
   
   # Send an error message if too many 0 cases are seen (means we needed more individuals or fewer cases)
-  good_cases <- n_individuals-length(which(geno_pheno_weights$weight==0.000000001))
-  if(n_cases > good_cases){
-    warning(paste0("Filters mean only ",good_cases," good potential cases remain, less than the ",n_cases," desired"))
+  possible_cases <- n_individuals - sum(geno_pheno_weights$case_scale == 0)
+  if(possible_cases < n_cases){
+    warning(paste0("There are only ",possible_cases," possible cases, less than the ",n_cases," desired"))
   }
   
   print(paste0("Assigning ",n_cases," cases based on the genotype data of ",n_causal_snps_adj," SNPs across ",n_individuals," individuals"))
-  # Assign and arrange out phenotypes
-  geno_pheno_data <- geno_pheno_weights %>%
-    {
-      causal_ids <- sample(.$index_row,size = n_cases, prob = .$weight, replace = FALSE)
-      mutate(., phenotype = ifelse(index_row %in% causal_ids,2,1))
+  # Assign n cases to individuals
+  case_individuals <- geno_pheno_weights
+  case_assigned <- data.frame()
+  while(nrow(case_assigned) < n_cases){
+    is_case <- runif(nrow(case_individuals)) < case_individuals$case_scale
+    case_assigned <- rbind(case_assigned,case_individuals[is_case,])
+    if(nrow(case_assigned) > n_cases){
+      deficit <- nrow(case_assigned) - n_cases
+      case_assigned <- case_assigned %>% 
+        mutate(remove_weight = 1-(case_scale - min(case_scale)) / (max(case_scale) - min(case_scale))) %>%
+        slice_sample(.,n = deficit,weight_by = .$remove_weight) %>%
+        anti_join(case_assigned,.)
     }
+    case_individuals <- anti_join(case_individuals,case_assigned)
+  }
+  
+  # Apply the phenotype to main data set
+  geno_pheno_data <- case_assigned %>%
+    right_join(geno_pheno_weights) %>%
+    mutate(phenotype = ifelse(index_row %in% case_assigned$index_row,2,1)) %>%
+    arrange(index_row)
   
   # Extract and combine data from results
   print("Merging map file")
@@ -408,10 +414,7 @@ generate_genomic_data <- function(n_individuals = 100,
   print(paste0("Done ! -- Total time elapsed: ",time_format(toc(total_start))))
   print(paste0("File name: '",file_name,"'"))
   
-  # Collect the allele info too and add causality
-  allele_info_fnal <- snp_data %>%
-    left_join(causal_snp_data) %>%
-    arrange(chr)
+  # Write out the genomic data information
   genomic_data$allele_info <- allele_info_fnal
   genomic_data$causal_genotype <- geno_pheno_data
   genomic_data$causal_snps <- as.data.frame(causal_snps)
@@ -419,8 +422,8 @@ generate_genomic_data <- function(n_individuals = 100,
 }
 
 ## Quick test of results
-genomic_data <- generate_genomic_data(n_individuals = 400, 
-                                      n_snps = 22000, 
+genomic_data <- generate_genomic_data(n_individuals = 4000, 
+                                      n_snps = 100000, 
                                       chrs = 1:22,
                                       heritability = 0.8, 
                                       n_causal_snps = 5,
@@ -429,7 +432,7 @@ genomic_data <- generate_genomic_data(n_individuals = 400,
                                       parallel = TRUE,
                                       human = TRUE,
                                       chrom_data = NULL,
-                                      coverage = 0.01,
+                                      coverage = 0.40,
                                       seed = 123)
 system("plink --bfile simulated_data --assoc --ci 0.95 --maf 0.05 --nonfounders --out sim_assoc_results")
 sim_results_assoc <- fread("sim_assoc_results.assoc", head=TRUE)

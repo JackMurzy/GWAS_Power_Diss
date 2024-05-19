@@ -62,9 +62,9 @@ $$
 
 Where:
 
-- $ heritability \in [0,1] $
-- $ genotype\_effect = genetic\_weight \cdot \sum_{i=1}^{n} g_{i} $
-- $ environmental\_effect $ is user-defined
+- $heritability \in [0,1]$
+- $genotype\_effect = genetic\_weight \cdot \sum_{i=1}^{n} g_{i}$
+- $environmental\_effect$ is user-defined
 
 Under this model, individuals with high sums of causal genotype scores are more likely to be cases if heritability is high, otherwise environmental effects dominate.
 

@@ -31,11 +31,11 @@ The **`genetic_sim`** R function outputs genomic data for individuals across spe
 
 SNPs are proportionally distributed across chromosomes based on known lengths. The position of each SNP within a chromosome is randomly generated. The LD (Linkage Disequilibrium) value is calculated based on the distance to the previous SNP with the formula:
 
-\[ LD_{k,j} = 0.999^{(pSNP_{k,j} - pSNP_{k,j-1})} \]
+$$ LD_{k,j} = 0.999^{(pSNP_{k,j} - pSNP_{k,j-1})} $$
 
 MAF (Minor Allele Frequencies) are then generated using a beta distribution and adjusted based on LD:
 
-\[ Adj\_MAF_{k,j} = LD_{k,j} \cdot MAF_{k,j-1} + (1 - LD_{k,j}) \cdot MAF_{k,j} \]
+$$ Adj\_MAF_{k,j} = LD_{k,j} \cdot MAF_{k,j-1} + (1 - LD_{k,j}) \cdot MAF_{k,j} $$
 
 Final genotype frequencies are then based on both the LD and Hardy-Weinburg Equilibriums generated from the adjusted MAF. 
 
@@ -43,28 +43,28 @@ Final genotype frequencies are then based on both the LD and Hardy-Weinburg Equi
 
 Next, causal SNPs are selected. These are initially filtered based on:
 
-1. Observed MAF \(\geq\) user-defined causal MAF
+1. Observed MAF $\geq$ user-defined causal MAF
 2. At least one SNP genotype is not 2
 
 The probability of a filtered SNP being causal is then decided based off how close its observed MAF is to the MAF desired by the user:
 
-\[ P(SNP_j = causal) = \left| maf\_observed_j - causal\_maf_j \right|' \]
+$$ P(SNP_j = causal) = \left| maf\_observed_j - causal\_maf_j \right|' $$
 
-Note that SNPs within \(\pm 1\text{kb}\) of selected causal SNPs are excluded in subsequent selections to ensure that final causal SNPs don't lie in high LD with each other.
+Note that SNPs within $\pm 1\text{kb}$ of selected causal SNPs are excluded in subsequent selections to ensure that final causal SNPs don't lie in high LD with each other.
 
 ### Assigning Case vs Control Labels
 
 Finally, the phenotypes of individuals are assigned. Here, the probability of an individual being a case is based on genetic and environmental components with the formula:
 
-\[ 
+$$
 P(Phenotype_i = case) = heritability_i \cdot (genotype\_effect_i') + (1-heritability_i) \cdot environmental\_effect_i 
-\]
+$$
 
 Where:
 
-- \( heritability \in [0,1] \)
-- \( genotype\_effect = genetic\_weight \cdot \sum_{i=1}^{n} g_{i} \)
-- \( environmental\_effect \) is user-defined
+- $ heritability \in [0,1] $
+- $ genotype\_effect = genetic\_weight \cdot \sum_{i=1}^{n} g_{i} $
+- $ environmental\_effect $ is user-defined
 
 Under this model, individuals with high sums of causal genotype scores are more likely to be cases if heritability is high, otherwise environmental effects dominate.
 

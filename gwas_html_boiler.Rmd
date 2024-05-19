@@ -1,0 +1,363 @@
+---
+title: "`r params$title`"
+author: "Jack Murzynowski"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+params:
+  title: "HTML Report for Simulated GWAS Data"
+  modulate: NULL
+  parameter_used: NULL
+  causal_snps: NULL
+  manhattan_png: NULL
+  bonferroni: NULL
+  fdr: NULL
+  qq_png: NULL
+  inflation: NULL
+  roc_png: NULL
+  auc: NULL
+  general_stats: NULL
+  max_F: NULL
+  power_thresh: NULL
+---
+
+```{r setup, include=FALSE}
+better_DT <- function(data_use,
+                      target = "column",
+                      multi_target = FALSE,
+                      rownames = FALSE,
+                      class = "display",
+                      pageLength = 10,
+                      lengthMenu = list(c(10, 25, 50, 100, -1), c(10, 25, 50, 100, "All")),
+                      info = TRUE,
+                      search_box = TRUE,
+                      download_button = TRUE,
+                      col_vis_button = TRUE, 
+                      hidden_cols = NULL, 
+                      rowReorder = FALSE,
+                      row_group_col = NULL,
+                      row_group_mean_cols = c(NULL),
+                      collapse_group_default = TRUE,
+                      fix_left_column = NULL,
+                      fix_right_column = NULL,
+                      fix_header = FALSE,
+                      col_head_colour = list(NULL),
+                      col_head_font_size = 1,
+                      col_head_font_rotate = 0,
+                      escape = TRUE,
+                      state = NULL){
+  
+  
+  # Determine target to select
+  if(multi_target){
+    selection_mode <- "multiple"
+  } else {
+    selection_mode <- "single"
+  }
+  # Determine fixed columns
+  if(!is.null(fix_left_column) | !is.null(fix_right_column)){
+    fixedCols <- list(leftColumns = fix_left_column, rightColumns = fix_right_column)
+  } else {
+    fixedCols <- FALSE
+  }
+  
+  # Check column visibility options
+  if(!is.null(hidden_cols)){
+    col_vis_button <- TRUE
+    columnDefs <- list(list(targets = c(hidden_cols), visible = FALSE))
+  } else {
+    columnDefs <- list(list(targets = "_all", className = "dt-center"))
+  }
+  
+  # Set buttons to add
+  buttons <- list()
+  if(col_vis_button){
+    datausecolnum <- ncol(data_use) - 1
+    mxdatausecolnum <- as.numeric(c(0:datausecolnum))
+    buttons <- list.append(buttons,list(extend = 'colvis', columns = mxdatausecolnum))
+    buttons <- list.append(buttons,list(extend = "colvisGroup",text="Show All",show=":hidden"))
+  }
+  if(download_button){
+    buttons <- list.append(buttons,list(extend = 'collection',buttons = c('csv', 'excel', 'pdf','print'), text = 'Download'))
+  }
+  
+  # Sort out dom
+  dom <- "r<\"datatables-scroll\"t>pli"
+  if(search_box){
+    dom <- paste0("f",dom)
+  }
+  if(download_button | col_vis_button){
+    dom <- paste0("B",dom)
+  }
+  
+  # Format the JS headercallback (include initial CSS to format columns and search boxes)
+  headerCallback <- c("function(thead, data, start, end, display){",
+                      "  var DTscroll = $('.datatables-scroll');",
+                      "  DTscroll.css({'overflow-x': 'auto', 'width': '100%'});",
+                      "  var td = $('.datatables-scroll thead tr td');",
+                      "  td.css({'position': 'sticky', 'background-color': '#FFFFFF'});",
+                      "  var factor_td = td.filter(function (d) {
+                          return($(this)[0].attributes[0].value == 'factor');
+                         })",
+                      "  factor_td.each(function(d){
+                          var factor_dropdown = factor_td[d].childNodes[3].childNodes[2].childNodes[1];
+                          var new_dropdown = factor_dropdown.childNodes[0];
+                          factor_dropdown.setAttribute('style','background-color:transparent; border:transparent; box-shadow:none')
+                          new_dropdown.setAttribute('style','width:fit-content; background-color:white; border:1px solid rgba(0, 0, 0, 0.15); border-radius:4px; box-shadow:0 6px 12px rgba(0, 0, 0, 0.175); max-height:100px');
+                         });")
+  
+  if(!is.null(col_head_colour[[1]])){
+    init_code_for_colour <- paste0("var th = $('.datatables-scroll thead tr th');")
+    if(data.class(col_head_colour[[1]])=="character"){
+      col_head_colour[[1]] <- which(colnames(data_use) %in% col_head_colour[[1]])-1
+    }
+    for(i in 1:length(col_head_colour[[1]])){
+      init_code_for_colour <- rbind(init_code_for_colour,paste0("  th[",col_head_colour[[1]][i],"].setAttribute('style','color: ",col_head_colour[[2]][i],"');"))
+    }
+    code_for_col_colour <- paste(init_code_for_colour, collapse = " ")
+    headerCallback <- c(headerCallback,
+                        code_for_col_colour)
+  }
+  
+  if(col_head_font_size != 1){
+    code_for_col_size <- paste0("  $(thead).css('font-size', '",col_head_font_size,"em');")
+    headerCallback <- c(headerCallback,
+                        code_for_col_size)
+  }
+  if(col_head_font_rotate != 0){
+    col_head_font_rotate <- abs(90-col_head_font_rotate)
+    code_for_col_rotate <- paste0("      'transform': 'rotate(",col_head_font_rotate,"deg)',")
+    headerCallback <- c(headerCallback,
+                        "  var $ths = $(thead).find('th');",
+                        "  $ths.css({'vertical-align': 'top', 'padding': '4px 0px',",
+                        "          'transform': 'rotate(180deg)', 'border': 'none'});",
+                        "  var betterCells = [];",
+                        "  $ths.each(function(){",
+                        "    var cell = $(this);",
+                        "    var newDiv = $('<div>', {width: '5px', float: 'left'});",
+                        "    var newInnerDiv = $('<div>', {text: cell.text()});",
+                        "    newDiv.css({margin: 'auto'});",
+                        "    newInnerDiv.css({",
+                        "      'writing-mode': 'vertical-rl',",
+                        "      'white-space': 'nowrap',",
+                        "      'text-align': 'left',",
+                        "      'transform-origin': 'top left',",
+                        code_for_col_rotate,
+                        "      'overflow': 'visible'",
+                        "    });",
+                        "    newDiv.append(newInnerDiv);",
+                        "    betterCells.push(newDiv);",
+                        "  });",
+                        "  $ths.each(function(i){",
+                        "    $(this).html(betterCells[i]);",
+                        "  });"
+    )
+  }
+  headerCallback <- c(headerCallback,"}")
+  
+  # Sort out row grouping
+  
+  
+  if(!is.null(row_group_col)){
+    # Get the group index and name
+    if(data.class(row_group_col)=="character"){
+      row_group_name <- row_group_col
+      row_group <- which(colnames(data_use)==row_group_col)
+    } else {
+      row_group <- row_group_col
+      row_group_name <- colnames(data_use)[row_group]
+    }
+    # Reorder the data to ensure correct grouping
+    data_use <- data_use[order(data_use[,row_group]),]
+    
+    # Set means if required
+    # Create grouping code
+    avg_code <- NULL
+    cell_pos <- NULL
+    if(!is.null(row_group_mean_cols)){
+      if(data.class(row_group_mean_cols)=="character"){
+        mean_cols <- which(colnames(data_use) %in% row_group_mean_cols)
+      } else {
+        mean_cols <- row_group_mean_cols
+      }
+      # Calculate means
+      for(i in 1:ncol(data_use)){
+        if(i %in% mean_cols){
+          col_average <- mean_cols[which(mean_cols == i)]
+          avg_code <- c(avg_code,
+                        paste0("let col_",col_average,"_avg = rows.data().pluck(",col_average,").filter(Number).reduce((a, b) => a + b * 1, 0) / rows.data().pluck(",col_average,").filter(Number).length;"))
+          cell_pos <- c(cell_pos,
+                        paste0("addCell(tr, col_",col_average,"_avg.toFixed(4),align = 'right');"))
+        } else {
+          avg_code <- c(avg_code,
+                        paste0("let col_",i,"_avg = '';"))
+          cell_pos <- c(cell_pos,
+                        paste0("addCell(tr, col_",i,"_avg);"))
+        }
+      }
+    }
+    
+    # Create the callback
+    groupCallback <- paste0("{endRender: null,
+                         startRender: function (rows, group) {
+                          function addCell(tr, content, colSpan = 1,align = 'left') {
+                            let td = document.createElement('th');
+                            td.colSpan = colSpan;
+                            td.setAttribute('style','text-align:' + align);
+                            td.textContent = content;
+                            tr.appendChild(td);
+                          }
+                          let tr = document.createElement('tr');
+                          ",paste(avg_code,collapse = " 
+                          "),"
+                          addCell(tr, '",row_group_name," group: ' + group, ",1,");
+                          ",paste(cell_pos,collapse = " 
+                          "),"
+                          return tr;
+                        },
+                        dataSrc: ",row_group,"
+                      }")
+    callback <- c("table.on('click', 'tr.dtrg-group', function () {",
+                  "  var rowsCollapse = $(this).nextUntil('.dtrg-group');",
+                  "  $(rowsCollapse).toggleClass('hidden');",
+                  "});")
+    if(collapse_group_default){
+      callback <- c(callback,"table.on('init', () => $('.dtrg-group').trigger('click'));")
+    }
+    js_callback <- JS(callback)
+    rownames <- TRUE
+  } else {
+    groupCallback <- NULL
+    js_callback <- JS("")
+  }
+  
+  # Sort out the state
+  if(!is.null(state)){
+    # Reorder columns
+    if(isTruthy(state$col_order)){
+      data_use <- data_use[,state$col_order+1]
+    }
+    # Hide columns
+    if(any(!is.null(state$col_vis))){
+      if(any(!state$col_vis)){
+        hidden_columns <- (which(!state$col_vis)-1)
+        columnDefs <- list(list(targets = c(hidden_columns), visible = FALSE))
+      }
+    }
+    # Set page length
+    if(!is.null(state$table_length)){
+      pageLength <- state$table_length
+    }
+    # Set order
+    stateCallback <- state$filter_order
+  } else {
+    stateCallback <- NULL
+  }
+  
+  # Create the datatable
+  datatable(data = data_use,
+            rownames = rownames,
+            class = class,
+            filter = "top",
+            selection = list(mode = selection_mode, target = target),
+            extensions = c('Buttons','ColReorder', 'RowReorder','RowGroup','FixedColumns','FixedHeader'),
+            escape = escape,
+            options = list(
+              headerCallback = JS(headerCallback),
+              columnDefs = columnDefs,
+              fixedColumns = fixedCols,
+              fixedHeader = fix_header,
+              rowGroup = JS(groupCallback),
+              dom = dom,
+              pageLength = pageLength,
+              lengthMenu = lengthMenu,
+              info = info,
+              colReorder = TRUE,
+              rowReorder = rowReorder,
+              buttons = buttons,
+              stateSave = TRUE,
+              order = JS(stateCallback),
+              stateDuration = -1
+            ),
+            callback = js_callback
+  )
+}
+```
+
+# Simulation parameters
+
+This data stems from runs modulating **`r params$modulate`**. Below is the table of the parameters used in this run:
+```{r echo=FALSE, results='asis'}
+if (!is.null(params$parameter_used)) {
+  knitr::kable(params$parameter_used)
+}
+```
+
+
+# Results
+
+## Causal SNP Associations
+
+Below is a table of all the causal SNPs and their respective association values:
+```{r echo=FALSE, results='asis'}
+if (!is.null(params$causal_snps)) {
+  better_DT(data = params$causal_snps,search_box = F,col_vis_button = T,pageLength = nrow(params$causal_snps),
+            hidden_cols = c(4:8,10:13,18:19))
+}
+```
+
+## Manhattan Plot
+```{r echo=FALSE, results='asis'}
+if (!is.null(params$manhattan_png)) {
+  knitr::include_graphics(params$manhattan_png)
+}
+```
+The blue line is the Bonferroni corrected pval (`r sprintf("%.3f", params$bonferroni)`), the red line is the FDR pval (`r sprintf("%.3f", params$fdr)`).
+Causal SNPs are highlighted based off their relation to the pvalues. 
+
+- Red = SNPs below the FDR
+- Orange = SNPs above FDR but below Bonferroni
+- Blue = SNPs above Bonferroni
+
+## QQ Plot
+```{r echo=FALSE, results='asis'}
+if (!is.null(params$qq_png)) {
+  knitr::include_graphics(params$qq_png)
+}
+```
+The same colour coding as before, the inflation factor = **`r params$inflation`**
+
+## ROC Curve
+```{r echo=FALSE, results='asis'}
+if (!is.null(params$roc_png)) {
+  knitr::include_graphics(params$roc_png)
+}
+```
+The AUC = **`r params$auc`**
+
+# Statistics
+
+Some general stats around the simulation are below:
+
+## General Stats
+```{r echo=FALSE, results='asis'}
+if (!is.null(params$general_stats)) {
+  knitr::kable(params$general_stats)
+}
+```
+
+## Max F-Score
+```{r echo=FALSE, results='asis'}
+if (!is.null(params$max_F)) {
+  knitr::kable(params$max_F)
+}
+```
+
+## Power Thresholds
+```{r echo=FALSE, results='asis'}
+if (!is.null(params$power_thresh)) {
+  knitr::kable(params$power_thresh)
+}
+```

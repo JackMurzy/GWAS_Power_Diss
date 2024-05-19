@@ -1,0 +1,76 @@
+---
+title: "`r params$title`"
+author: "Jack Murzynowski"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+params:
+  title: "HTML Report for Simulated GWAS Data"
+  modulate: NULL
+  parameter_used: NULL
+  auc_png: NULL
+  best_auc_ind: NULL
+  best_auc_val: NULL
+  pthresh_png: NULL
+  best_pval_ind: NULL
+  fstat_png: NULL
+  best_ffstat_ind: NULL
+  best_ffstat_val: NULL
+  best_bfstat_ind: NULL
+  best_bfstat_val: NULL
+  inflation_png: NULL
+  best_inf_ind: NULL
+  best_inf_val: NULL
+---
+  
+# Simulation parameters
+  
+This data stems from runs modulating **`r params$modulate`**.
+```{r echo=FALSE, results='asis'}
+if (!is.null(params$parameter_used)) {
+  knitr::kable(params$parameter_used)
+}
+```
+
+# Results
+
+## AUC
+```{r echo=FALSE, results='asis'}
+if (!is.null(params$auc_png)) {
+  knitr::include_graphics(params$auc_png)
+}
+```
+
+This plot shows the area under the curve (AUC) of receiver operator curves (ROC) for each simulation. The closer to one the value is the better. The best performing group was the **`r params$best_auc_ind`** heritability , with an AUC of `r params$best_auc_val`.
+
+## Detection Power
+```{r echo=FALSE, results='asis'}
+if (!is.null(params$pthresh_png)) {
+  knitr::include_graphics(params$pthresh_png)
+}
+```
+
+This plot demonstrates the ability of PLINKs GWAS to detect the causal SNPs at varying pval thresholds. The best performing group was 
+the **`r params$best_pval_ind`** heritability.
+
+
+## F-score measure
+```{r echo=FALSE, results='asis'}
+if (!is.null(params$fstat_png)) {
+  knitr::include_graphics(params$fstat_png)
+}
+```
+
+This plot shows the F-score for runs at both the bonferroni and FDR thresholds. If present, empty values represent cases where PLINKs GWAS had 0% sensitivity (unable to detect any true positives at the thresholds). The F-score is a measure of accuracy, considering both precision and recall. A high F-score indicates a good balance between precision and recall, meaning the model is making accurate predictions without missing many positive instances or generating too many false positives. The maximum score is 1. The best performing group was the **`r params$best_ffstat_ind`** heritability (`r params$best_ffstat_val`) at the FDR threshold and the **`r params$best_bfstat_ind`** heritability (`r params$best_bfstat_val`) at the Bonferroni threshold.
+
+
+## Inflation measure
+```{r echo=FALSE, results='asis'}
+if (!is.null(params$inflation_png)) {
+  knitr::include_graphics(params$inflation_png)
+}
+```
+This plot shows the genomic inflation factor seen within each group. This is a measure of systematic bias in the GWAS with a value greater than one indicating potential confounding factors that leads to more false positives, and a value less than one indicating overly conservative results with fewer true positives. Here, the best performing group was the **`r params$best_inf_ind`** heritability, with an inflation factor of `r params$best_inf_val`.
+

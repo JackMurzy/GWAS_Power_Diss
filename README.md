@@ -24,8 +24,8 @@ This is the repository for the code behind my dissertation on Quantifying the Pe
 - [final_calc_ld_matrix.R](./Helper_Functions/fnal_calc_ld_matrix.R): A custom function to calculate the LD matrix between SNPs based off genotype data. This uses the statistical approach outlined by [T.J.Hui and A.Burt, 2020](https://bmcgenomdata.biomedcentral.com/articles/10.1186/s12863-020-0818-9#citeas). 
 - [final_generate_association_stats.R](./Helper_Functions/fnal_generate_association_stats.R): This file contains a plethora of functions designed to generate association statistics for a PLINK --assoc GWAS output. These include power and inflation calculations, Bonferroni and FDR thresholds, F-values and ROC curves.
 - [final_make_gg_qq.R](./Helper_Functions/fnal_make_gg_qq.R): A custom function to generate qq and manhattan plots using ggplot2.
-- [gwas_html_boiler.Rmd](./gwas_html_boiler.Rmd): This is the markdown template for the per-run HTML reports generated. This tracks stats such as run parameters, manhattan and qq plots as well as ROC curves and general association stats. 
-- [summary_gwas_html_boiler.Rmd](./summary_gwas_html_boiler.Rmd): This is the markdown template for the per-test summary HTML reports. This plots power, F-scores, AUC and inflation statistics across ALL runs. 
+- [gwas_html_boiler.Rmd](./Helper_Functions/gwas_html_boiler.Rmd): This is the markdown template for the per-run HTML reports generated. This tracks stats such as run parameters, manhattan and qq plots as well as ROC curves and general association stats. 
+- [summary_gwas_html_boiler.Rmd](./Helper_Functions/summary_gwas_html_boiler.Rmd): This is the markdown template for the per-test summary HTML reports. This plots power, F-scores, AUC and inflation statistics across ALL runs. 
 
 
 ## General Framework for Generating Genomic Data at Scale

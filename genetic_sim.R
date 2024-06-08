@@ -1,10 +1,45 @@
-# NCmisc::list.functions.in.file(filename = "~/Desktop/University/Biomedicine/Y3/Dissertation/PLINK_Tutorials/Simulate_Data_Test/Sim2.R",
+# NCmisc::list.functions.in.file(filename = "~/Desktop/University/Biomedicine/Y3/Dissertation/PLINK_Tutorials/Simulate_Data_Test/genetic_sim.R",
 #                                                                alphabetic = TRUE)
 library(parallel)
 library(data.table)
 library(stats)
 library(tidyverse)
 
+# Timing functions to measure time taken per run
+tic <- function(){return(Sys.time())}
+toc <- function(tic){return(as.numeric(difftime(Sys.time(), tic, units = "secs")))}
+time_format <- function(seconds){
+  hour_secs <- floor(seconds/3600)*3600
+  min_secs <- floor((seconds - hour_secs)/60)*60
+  sec_secs <- floor(seconds - (hour_secs+min_secs))
+  return(paste0(hour_secs/3600,"hrs ",min_secs/60,"mins ",sec_secs,"secs"))
+}
+
+#' Simulate genomic data
+#' 
+#' @description
+#' `simulate_genotype_data` Creates the genotype data for a single population of individuals
+#' @details
+#' This function will generate varying sets of genomic data according to user requirements. The length of time the function takes 
+#' to run is proportional to the number of individuals and SNPs it is asked to simulate as well as the speed of the laptop. Parallel processing
+#' has been implemented for speed, specifically this will use all but 2 cores when parallel is set to true. 
+#' @param n_individuals (numeric) The number of individuals to simulate SNPs across
+#' @param n_snps (numeric) The total number of SNPs to simulate across individuals, this is distributed across chromosomes in correspondence to their size to 
+#' ensure similar coverage
+#' @param chrs (numeric vector) Vector of chromosomes to simulate
+#' @param pair_ld (numeric) A value between 0 and 1 (not inclusive) that is raised to the distance between a SNP and the one before it. If the distance is 1bp then
+#'  the LD value would be pair_ld^1. A value close to 1 (0.999..) means LD will be near identical, a value of 0 means there is no LD at all.  
+#' @param coverage (numeric) A weight between 0 and 1 to scale the length of chromosomes from chrom_data to simulate SNPs across. 
+#' E.g. if chrom 1 is 214066000bp long and you wanted to simulate 8000 SNPs then these would be highly spread apart. But if coverage is 0.001 then the chromosome
+#' is only treated as being 214066bp long. 
+#' @param parallel (boolean) Enable parallel processing, FALSE by default but HIGHLY recommended to be TRUE if the users computer has multiple cores
+#' @param human (boolean) Default TRUE, if so then this uses pre-loaded chrom_data containing the length of chromosomes 1:22 (23 excluded since this is the sex
+#' chromosome and can't be simulated by this function). These lengths can be altered by the coverage parameter and determine the scale SNP positions are sampled over
+#' @param chrom_data (df) Default NULL, if a dataframe is provided this must contain 'chr' and 'length' columns. If the human parameter is TRUE and chrom_data
+#' is NULL then preloaded data is used, this can be overridden if chrom_data is specified
+#' @param seed (numeric) Sets the seed for random number generation to make results repeatable. NOTE outputs of the same seed when the parallel parameter differs
+#' still differ due to environmental constraints, but within each TRUE/FALSE parallel group the results are identical. 
+#' @outputs Returns a list containing three dataframes for  SNP, genotype  and  allele information. 
 simulate_genotype_data <- function(
     n_individuals = 200,
     n_snps = 10000,
@@ -303,6 +338,20 @@ simulate_genotype_data <- function(
   return(genotype_data)
 }
 
+
+#' Simulate causal SNPs
+#' 
+#' @description
+#' `causal_snp_assignment` Assigns causal SNPs from genotype data  
+#' @details
+#' This function will generate varying set of causal SNPs according to user requirements, enabling them to modulate
+#' the amount of SNPs and their MAF
+#' @param genotype_data (list) The output from the `simulate_genotype_data` function. 
+#' @param n_individuals (numeric) The number of individuals to simulate SNPs across
+#' @param n_causal_snps (numeric) The number of SNPs assigned as causal
+#' @param causal_maf (numeric) The minor allele frequency causal SNPs should have
+#' @param seed (numeric) Sets the seed for random number generation to make results repeatable.
+#' @outputs Returns a dataframe of causal_snps information. 
 causal_snp_assignment <- function(
     genotype_data = NULL,
     n_causal_snps = 5,
@@ -334,7 +383,7 @@ causal_snp_assignment <- function(
     selected_snp <- one_weighted[sample(1:nrow(one_weighted), 1), ]
     causal_snp <- rbind(causal_snp, selected_snp)
     
-    # Remove causal SNP +- 1000bp from remaining data
+    # Remove causal SNP +- 2000bp from remaining data
     causal_reweight <- causal_reweight %>%
       filter(!(chr == selected_snp$chr & 
                  pos >= selected_snp$pos - 2000 & 
@@ -345,7 +394,22 @@ causal_snp_assignment <- function(
   return(causal_snp)
 }
 
-
+#' Simulate Phenotypes
+#' 
+#' @description
+#' `phenotype_assigment` Assigns individual phenotypes based on causal SNPs 
+#' @details
+#' This function will generate varying set of causal SNPs according to user requirements, enabling them to modulate
+#' the amount of SNPs and their MAF
+#' @param genotype_data (list) The output from the `simulate_genotype_data` function. 
+#' @param causal_snps (dataframe) The output from the `causal_snp_assignment` function.
+#' @param n_cases (numeric) The number of individuals who will have case phenotypes (the rest will be controls)
+#' @param genef_size (numeric vector) The effect size of each causal SNP
+#' @param envef_size (numeric vector) The effect size of an environmental factor for each individual
+#' @param heritability (numeric vector) A weight between 0 and 1 for how much of an individuals disease is decided by genetics or the environment where 1 = purely genetics. 
+#' @param override_ncases (boolean) Overrides the number of cases desired if there are fewer genetically explainible cases than requested
+#' @param seed (numeric) Sets the seed for random number generation to make results repeatable.
+#' @outputs Returns a list of genotype + phenotype data, allele + phenotype data and individual phenotype information. 
 phenotype_assigment <- function(
     genotype_data = NULL,
     causal_snps = NULL,
@@ -362,8 +426,8 @@ phenotype_assigment <- function(
   if(!any(names(genotype_data) %in% c("allele_info","genotype_info"))){
     stop("genotype_data must be a list of dataframes called allele_info and genotype_info")
   }
-  if(!any(names(causal_snps) %in% c('chr','id','pos','minor','major','maf_assigned','ld_prev','similarity','maf_observed','index_col','maf_diff','maf_sim_norm'))){
-    stop("causal_snps must be a dataframe with columns: 'chr','id','pos','minor','major','maf_assigned','ld_prev','similarity','maf_observed','index_col','maf_diff' and 'maf_sim_norm'")
+  if(!any(names(causal_snps) %in% c('index_col'))){
+    stop("causal_snps must be a dataframe with columns: 'index_col'")
   }
   
   # If effect size is not the correct length vector stop
@@ -456,7 +520,44 @@ phenotype_assigment <- function(
   return(list(geno_pheno_data = geno_pheno_data,allele_pheno_data = allele_pheno_data,case_control_stats = case_control_stats))
 }
 
-## Function to make genetic data
+## Function to make genetic data, simulate causal SNPs and assign phenotypes
+#' Simulate genomic data
+#' 
+#' @description
+#' `genetic_sim` Creates bed, bim, fam, map and ped files containing simulated genomic data along with causal SNPs and phenotypes
+#' @details
+#' This function will generate varying sets of genomic data according to user requirements. The length of time the function takes 
+#' to run is proportional to the number of individuals and SNPs it is asked to simulate as well as the speed of the laptop. Parallel processing
+#' has been implemented for speed, specifically this will use all but 2 cores when parallel is set to true. The output files are designed to work with
+#' PLINK 1.9. NOTE that this function can't simulate chrom 23 data since this would have different genotype values depending on sex.
+#' @param n_individuals (numeric) The number of individuals to simulate SNPs across
+#' @param n_snps (numeric) The total number of SNPs to simulate across individuals, this is distributed across chromosomes in correspondence to their size to 
+#' ensure similar coverage
+#' @param chrs (numeric vector) Vector of chromosomes to simulate
+#' @param n_causal_snps (numeric) The number of SNPs assigned as causal
+#' @param causal_maf (numeric) The minor allele frequency causal SNPs should have
+#' @param n_cases (numeric) The number of individuals who will have case phenotypes (the rest will be controls)
+#' @param genef_size (numeric vector) The effect size of each causal SNP
+#' @param envef_size (numeric vector) The effect size of an environmental factor for each individual
+#' @param heritability (numeric vector) A weight between 0 and 1 for how much of an individuals disease is decided by genetics or the environment where 1 = purely genetics. 
+#' @param pair_ld (numeric) A value between 0 and 1 (not inclusive) that is raised to the distance between a SNP and the one before it. If the distance is 1bp then
+#'  the LD value would be pair_ld^1. A value close to 1 (0.999..) means LD will be near identical, a value of 0 means there is no LD at all.  
+#' @param coverage (numeric) A weight between 0 and 1 to scale the length of chromosomes from chrom_data to simulate SNPs across. 
+#' E.g. if chrom 1 is 214066000bp long and you wanted to simulate 8000 SNPs then these would be highly spread apart. But if coverage is 0.001 then the chromosome
+#' is only treated as being 214066bp long. 
+#' @param write_plink (boolean) Boolean value to write out PLINK files
+#' @param file_name (character) File name for all output files
+#' @param directory (character) Path to store the output files
+#' @param parallel (boolean) Enable parallel processing, FALSE by default but HIGHLY recommended to be TRUE if the users computer has multiple cores
+#' @param human (boolean) Default TRUE, if so then this uses pre-loaded chrom_data containing the length of chromosomes 1:22 (23 excluded since this is the sex
+#' chromosome and can't be simulated by this function). These lengths can be altered by the coverage parameter and determine the scale SNP positions are sampled over
+#' @param chrom_data (df) Default NULL, if a dataframe is provided this must contain 'chr' and 'length' columns. If the human parameter is TRUE and chrom_data
+#' is NULL then preloaded data is used, this can be overridden if chrom_data is specified
+#' @param override_ncases (boolean) Overrides the number of cases desired if there are fewer genetically explainible cases than requested
+#' @param seed (numeric) Sets the seed for random number generation to make results repeatable. NOTE outputs of the same seed when the parallel parameter differs
+#' still differ due to environmental constraints, but within each TRUE/FALSE parallel group the results are identical. 
+#' @outputs Creates bed, bim, fam, map and ped files suitable for PLINK. Returns a list containing six dataframes for allele data, 
+#' genotype data, allele + phenotype data, genotype + phenotype data,  total SNP data, and causal SNP data. 
 genetic_sim <- function(
     n_individuals = 2000,
     n_snps = 10000,
@@ -522,7 +623,7 @@ genetic_sim <- function(
     select(-index_col) %>%
     left_join(phenotype_indv$case_control_stats) %>%
     mutate(index_col = index_cols)
-
+  
   
   genetic_data <- list(causal_snp_data = causal_snps_better,
                        causal_geno_pheno_data = phenotype_indv$geno_pheno_data,

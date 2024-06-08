@@ -140,21 +140,21 @@ generate_qqmanhat <- function(association_data,causal_snps,plot_type = c('manhat
     if(i == "manhattan"){
       print("Generating Manhattan plot")
       manhat_plot <- ggmanhattan(association_data,
-                                    chr = "CHR", 
-                                    bp = "BP", 
-                                    p = "P", 
-                                    snp = "SNP", 
-                                    title = manhat_title,
-                                    logp = logp,
-                                    min_pval = min_pval,
-                                    col = c("lightblue", "blue"), 
-                                    suggestiveline = minor_threshold,
-                                    genomewideline = major_threshold,
-                                    suggestLinecol = 'red',
-                                    genomeLinecol = 'blue',
-                                    highlight = highlight_snps,
-                                    annotateHighlight = annotate_causal,
-                                    chrlabs = c(1, 2, 3, 4, 5, 7, 9, 12, 15, 19))
+                                 chr = "CHR", 
+                                 bp = "BP", 
+                                 p = "P", 
+                                 snp = "SNP", 
+                                 title = manhat_title,
+                                 logp = logp,
+                                 min_pval = min_pval,
+                                 col = c("lightblue", "blue"), 
+                                 suggestiveline = minor_threshold,
+                                 genomewideline = major_threshold,
+                                 suggestLinecol = 'red',
+                                 genomeLinecol = 'blue',
+                                 highlight = highlight_snps,
+                                 annotateHighlight = annotate_causal,
+                                 chrlabs = c(1, 2, 3, 4, 5, 7, 9, 12, 15, 19))
       
       # Save the plot
       if(!is.null(directory) & !is.null(filename)) {
@@ -237,7 +237,7 @@ generate_roc <- function(association_data,causal_snps,colour = "viridis",title =
     mutate(true_causal = ifelse(SNP %in% causal_snps_vect, 1, 0))
   
   # Create ROC curve using p-values
-  roc_curve <- roc(association_data_mut$true_causal, 1 - association_data_mut$P)
+  roc_curve <- roc(response = association_data_mut$true_causal, predictor = 1 - log10(association_data_mut$P))
   
   # Extract thresholds and corresponding TPR and FPR
   thresholds <- roc_curve$thresholds
@@ -375,12 +375,3 @@ generate_ld_metrics <- function(snp_data,genotype_data,snp_id,window_size,index 
   }
   return(ld_data)
 }
-
-
-
-
-
-
-
-
-
